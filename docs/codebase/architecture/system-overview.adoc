@@ -1,0 +1,122 @@
+= System Overview
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains the codebase at the subsystem level: what the main parts are, how they fit together, and where to start reading code.
+
+== Mental Model
+
+Logseq is not a single monolith in one runtime. It is a set of cooperating layers:
+
+* The frontend application renders UI, owns interaction handlers, and starts the rest of the system.
+* A browser worker owns the heavy DB-oriented work: SQLite persistence, DataScript state, search indexing, export/publish helpers, and realtime sync coordination.
+* Shared dependency packages in `deps/` contain core logic that should not live inside the UI runtime.
+* Electron and mobile wrappers provide platform integration around the same product model.
+
+For most contributor work, the critical distinction is between:
+
+* behavior orchestration in `src/main/frontend/`, and
+* stateful data execution in `src/main/frontend/worker/` plus `deps/`.
+
+== Top-Level Responsibilities
+
+|===
+|Area |Primary code |Role
+
+|Frontend startup
+|`src/main/frontend/handler.cljs`
+|Starts the app, initializes services, restores repos, registers components, starts the DB worker.
+
+|Frontend features
+|`src/main/frontend/components/`, `src/main/frontend/handler/`
+|User-facing components and feature handlers.
+
+|Frontend DB bridge
+|`src/main/frontend/db/`, `src/main/frontend/persist-db*`
+|Bridges UI code to the DB worker and persisted graph state.
+
+|Browser worker
+|`src/main/frontend/worker/`
+|Runs heavy data and sync work outside the UI thread.
+
+|DB libraries
+|`deps/db/`
+|Schema, SQLite helpers, entity and property utilities, shared DB logic.
+
+|Graph parser
+|`deps/graph-parser/`
+|Transforms files and mldoc content into importable/exportable graph structures.
+
+|Sync server
+|`deps/db-sync/`
+|Realtime sync server implementation for Cloudflare Worker and Node.
+
+|Plugin API
+|`src/main/logseq/api/`
+|Public and semi-public API layer used by plugins.
+|===
+
+== Startup Flow
+
+The main startup entry point is `frontend.handler/start!` in `src/main/frontend/handler.cljs`.
+
+At a high level it does the following:
+
+. Initializes frontend-side services such as IndexedDB, plugin setup, i18n, instrumentation, and event handlers.
+. Renders the UI shell.
+. Starts the browser DB worker through `db-browser/start-db-worker!`.
+. Loads known repositories and selects the current repo.
+. Restores the selected graph through `restore-and-setup!`, which delegates into DB restore and repo configuration.
+
+Two practical consequences follow from that arrangement:
+
+* The frontend is responsible for lifecycle and orchestration.
+* The worker becomes the long-lived execution engine for graph state.
+
+== State Model
+
+The codebase uses more than one kind of state because the product has more than one kind of problem.
+
+=== UI State
+
+UI-facing state lives primarily in frontend atoms and component subscriptions. This covers concerns such as selection, editing state, route-driven UI, and other reactive view state.
+
+=== Graph State
+
+Graph and document state is centered around DataScript plus persisted SQLite storage. The worker is where DB connections, persistence, migration, validation, and most transaction-heavy logic live.
+
+=== Sync State
+
+When realtime sync is enabled, sync-specific state tracks websocket connectivity, pending local operations, remote transaction progress, asset operations, and online user presence.
+
+== Code Reading Order
+
+If you want to understand the application shape before diving into feature code, the following order works well:
+
+. `src/main/frontend/handler.cljs`
+. `src/main/frontend/handler/repo.cljs`
+. `src/main/frontend/db/` and `src/main/frontend/persist-db*`
+. `src/main/frontend/worker/db_worker.cljs`
+. `deps/db/`
+. `deps/graph-parser/`
+. `src/main/frontend/worker/sync.cljs` and `deps/db-sync/`
+
+That order mirrors how control typically flows from UI lifecycle into DB and sync internals.
+
+== Where New Contributors Usually Get Lost
+
+The same concepts often appear in several layers, but for different reasons.
+
+Examples:
+
+* A page or block can appear in parser code, DB schema code, UI rendering code, and sync code.
+* Properties exist both as parser-level syntax concerns and DB-level schema/value concerns.
+* "Repo" and "graph" are related but not always interchangeable at the code level.
+
+When in doubt, first decide which layer owns the behavior you are changing:
+
+* Syntax and import/export shape: look in `deps/graph-parser/`.
+* Persistence, schema, properties, and transactions: look in `deps/db/` and the worker.
+* User interaction and UI lifecycle: look in `src/main/frontend/handler/` and `src/main/frontend/components/`.
+* Realtime replication or remote graph movement: look in `src/main/frontend/worker/sync.cljs`, `src/main/frontend/worker/db_worker.cljs`, and `deps/db-sync/`.

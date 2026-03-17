@@ -1,0 +1,224 @@
+= Build System
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains the Logseq build pipeline. It is written for contributors who may not be familiar with JavaScript/Node tooling.
+
+== Why Multiple Build Tools?
+
+Logseq uses four main build tools rather than one monolithic pipeline:
+
+* *shadow-cljs*: compiles ClojureScript to JavaScript
+* *Gulp*: handles CSS, asset copying, and Electron packaging
+* *Webpack*: bundles JavaScript modules
+* *Babashka*: orchestrates development tasks
+
+This separation exists because each tool solves a specific problem well. A simpler build with one tool would be harder to understand and less flexible.
+
+== High-Level Build Flow
+
+==== Development (`yarn watch`)
+
+1. shadow-cljs watches ClojureScript source and compiles on change
+2. Gulp watches CSS source and rebuilds on change
+3. Webpack watches JavaScript modules and rebuilds on change
+4. Browser hot-reloads at port 3001
+
+==== Release (`yarn release`)
+
+1. Gulp builds and optimizes CSS
+2. shadow-cljs compiles ClojureScript with optimizations
+3. Webpack bundles all JavaScript with minification
+4. Output appears in `static/`
+
+== The Four Main Tools
+
+=== shadow-cljs: ClojureScript Compilation
+
+*What it does*: Compiles all ClojureScript code (`.cljs` and `.cljc` files) to JavaScript.
+
+*Key config*: `shadow-cljs.edn`
+
+*Main builds*:
+
+* `:app` — the main browser frontend
+* `:db-worker` — the browser worker thread
+
+*How to use it*:
+
+[source,shell]
+----
+# Watch and live-reload during development
+yarn cljs:watch
+
+# One-time development compile with maps and slow optimization 
+yarn cljs:dev
+
+# One-time optimized release build
+yarn cljs:release
+----
+
+*When to care about this*: When you are working with ClojureScript code, understanding shadow-cljs is important. Hot reload (live-reloading changed functions without page reload) depends on it.
+
+*Common issues*: If ClojureScript compiles but the browser shows old code, you may need to hard-refresh or restart shadow-cljs.
+
+=== Gulp: Assets and Styling
+
+*What it does*: 
+
+* Compiles PostCSS (including Tailwind CSS) to vanilla CSS
+* Copies libraries and assets from `node_modules` into `static/`
+* Packages Electron apps
+
+*Key config*: `gulpfile.js`
+
+*How to use it*:
+
+[source,shell]
+----
+# Watch CSS (runs PostCSS -> Tailwind -> output CSS)
+yarn gulp:watch
+
+# Build CSS for release (includes optimization)
+yarn gulp:build
+
+# Build Electron app for distribution
+yarn gulp:electronMaker
+----
+
+*When to care about this*: When working with CSS, Tailwind classes, or adding new third-party libraries referenced in the HTML.
+
+*Key point*: If you add a new library to `node_modules` and the app doesn't see it, check `gulpfile.js` to see if it needs to be explicitly copied.
+
+=== Webpack: JavaScript Bundling
+
+*What it does*: Bundles all non-ClojureScript JavaScript (including libraries) into optimized modules.
+
+*Key config*: `webpack.config.js`
+
+*How to use it*:
+
+[source,shell]
+----
+# Watch and rebuild JavaScript
+yarn webpack-app-watch
+
+# One-time build for release
+yarn webpack-app-build
+----
+
+*When to care about this*: When working with JavaScript libraries or module resolution issues.
+
+*Practical note*: Most frontend work happens in ClojureScript, not raw JavaScript. Webpack matters when dependencies need careful bundling.
+
+=== Babashka: Task Orchestration
+
+*What it does*: Runs development tasks, tests, linting, and specialized scripts.
+
+*Key config*: `bb.edn`
+
+*Common tasks*:
+
+[source,shell]
+----
+# Watch and rebuild everything at once
+bb dev:watch
+
+# Run linters
+bb dev:lint-and-test
+
+# Test single test case
+bb dev:test -v frontend.db.core-test/test-name
+
+# Run e2e tests
+yarn playwright test
+
+# Import a graph from markdown/org into DB format
+bb dev:import /path/to/graph
+----
+
+*When to care about this*: For testing, linting, and when running specialized import/query/transact scripts.
+
+== Dev vs Release: The Key Difference
+
+==== Development Builds
+
+* Fast compilation (seconds, not minutes)
+* Include source maps for browser debugging
+* Include developer tools
+* Hot-reload on save
+* Less optimized, larger file sizes
+
+==== Release Builds
+
+* Slower compilation (minutes) with heavy optimization
+* Remove source maps (or generate separately for crash reporting)
+* Remove dev tools
+* Minified output
+* Optimized for download and run time
+
+For feature development, always use development builds. Use release builds only when verifying that optimizations don't break things.
+
+== Common Build Tasks You Will Run
+
+[source,shell]
+----
+# Start watching everything
+yarn watch
+
+# Run all linters and tests
+bb dev:lint-and-test
+
+# Run one test
+bb dev:test -v frontend.db.core-test/test-name
+
+# Release build (slow, do this before PR or shipping)
+yarn release
+----
+
+== File Locations After Build
+
+After any build, the output goes into `static/`:
+
+|===
+|Path |Built by |Contains
+
+|`static/js/*.js`
+|shadow-cljs + webpack
+|All JavaScript (translated ClojureScript + bundled libraries)
+
+|`static/css/*.css`
+|gulp (postcss + tailwind)
+|All CSS
+
+|`static/fonts/`
+|gulp
+|Icon fonts and typefaces
+
+|`static/img/`
+|gulp (copies from `resources/img`)
+|Images and icons
+
+|`static/html/`
+|gulp (copies from `resources`)
+|Precompiled HTML pages
+|===
+
+== Where Things Can Go Wrong
+
+* *"Code changes aren't appearing"*: Check if shadow-cljs is actually watching (look for "Watching" in terminal) and do a hard refresh in browser.
+* *"CSS doesn't match expected Tailwind"*: Make sure `yarn gulp:watch` is running and check that the class name is valid in `tailwind.config.js`.
+* *"New JavaScript library isn't found"*: Add it to both `package.json` and to the asset copying section in `gulpfile.js`.
+* *"Build succeeds but app doesn't work"*: Run `yarn release` locally and test that before assuming dev-only code is the issue.
+
+== For Those Coming From Single-Build-Tool Backgrounds
+
+If you are used to Maven, Gradle, Webpack-only, or Rust's Cargo:
+
+* Think of `bb` tasks as your entry point (like `cargo build` or `gradle build`).
+* shadow-cljs is close to `tsc` (TypeScript compiler) — it transforms one language to another.
+* Gulp is close to `make` — it orchestrates multiple file-copy and CSS-transform steps.
+* Webpack is the bundler layer.
+
+The unusual aspect is that they run in parallel for development and sequentially for release. This is intentional and makes the edit-test cycle much faster.

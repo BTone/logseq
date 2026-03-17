@@ -1,0 +1,146 @@
+= DB-Sync and Realtime Flow
+:toc: left
+:toclevels: 3
+:sectanchors:
+
+This page describes the moving parts involved in Logseq's db-sync architecture. It is a codebase guide, not a protocol specification.
+
+For request and response shapes, use link:../../agent-guide/db-sync/protocol.md[docs/agent-guide/db-sync/protocol.md].
+
+For implementation review expectations, use link:../../agent-guide/db-sync/db-sync-guide.md[docs/agent-guide/db-sync/db-sync-guide.md].
+
+== High-Level Model
+
+Realtime sync spans three distinct layers:
+
+* the frontend and worker-side client logic,
+* the local client operation store and checksum/replay logic,
+* the remote db-sync server implementation in `deps/db-sync/`.
+
+The important design principle is that sync is built around database-oriented operations and invariants, not only around UI events.
+
+== Main Source Areas
+
+|===
+|Area |Primary code |Responsibility
+
+|Worker-side client orchestration
+|`src/main/frontend/worker/sync.cljs`
+|Websocket lifecycle, pending operation tracking, checksum validation, asset sync, replay.
+
+|Worker DB bridge
+|`src/main/frontend/worker/db_worker.cljs`
+|Creates/open DBs and invokes sync-related worker flows.
+
+|Main-thread handler glue
+|`src/main/frontend/handler/db_based/`
+|User-facing entry points for DB-based sync operations.
+
+|Client op helpers
+|`src/main/frontend/worker/sync/client_op.cljs`
+|Local sync metadata, local transaction bookkeeping, graph identity helpers.
+
+|Server protocol and storage
+|`deps/db-sync/src/logseq/db_sync/`
+|Remote sync routing, storage, batch ordering, checksums, snapshot, cycle handling.
+|===
+
+== Worker-Side Client Responsibilities
+
+The main client namespace is `frontend.worker.sync`.
+
+Its responsibilities include:
+
+* connection state and websocket lifecycle,
+* auth token handling,
+* sync counters and pending work visibility,
+* checksum comparison and fail-fast mismatch reporting,
+* presence and online user broadcasting,
+* upload/download orchestration for graph and assets,
+* transaction classification and replay handling.
+
+The namespace is intentionally strict about invariants. Missing DB state, malformed server responses, or checksum mismatches are treated as bugs, not soft failures.
+
+== Local Sync State
+
+Realtime sync is not only about a live socket. The client also maintains local durable sync-related state.
+
+Important concepts visible in the worker code include:
+
+* pending local transactions,
+* latest known remote transaction,
+* per-graph UUID identity,
+* local checksum cache,
+* queued asset operations,
+* inflight operation sets.
+
+Those pieces are what allow the worker to determine whether local and remote state are actually converged.
+
+== Checksums and Convergence
+
+`frontend.worker.sync` uses checksum verification to confirm that local and remote graph state agree after transaction progress catches up.
+
+The useful mental model is:
+
+* transaction numbers tell you whether two sides are at the same point in sequence,
+* checksums tell you whether they agree on content.
+
+When those disagree, the system escalates because the bug is deeper than a transient retry condition.
+
+== Server Package Structure
+
+The sync server implementation in `deps/db-sync/` is organized around responsibilities rather than a single giant handler.
+
+Notable namespaces include:
+
+* `logseq.db-sync.protocol`
+* `logseq.db-sync.storage`
+* `logseq.db-sync.snapshot`
+* `logseq.db-sync.batch`
+* `logseq.db-sync.order`
+* `logseq.db-sync.checksum`
+* `logseq.db-sync.cycle`
+* `logseq.db-sync.worker.handler.sync`
+* `logseq.db-sync.worker.handler.assets`
+* `logseq.db-sync.worker.ws`
+* `logseq.db-sync.node.*`
+
+The presence of both `worker` and `node` namespaces reflects the supported deployment targets: Cloudflare Worker first, plus a Node adapter for self-hosting.
+
+== What To Trace For Common Sync Problems
+
+|===
+|Problem shape |Start with
+
+|Socket opens but no progress happens
+|`src/main/frontend/worker/sync.cljs`
+
+|Graph upload/download lifecycle bug
+|`src/main/frontend/worker/sync.cljs` and `src/main/frontend/handler/db_based/`
+
+|Remote ordering or storage bug
+|`deps/db-sync/src/logseq/db_sync/order.cljs`, `storage.cljs`, `batch.cljs`
+
+|Checksum mismatch
+|`src/main/frontend/worker/sync.cljs` plus `deps/db-sync/src/logseq/db_sync/checksum.cljs`
+
+|Asset sync issue
+|`src/main/frontend/worker/sync.cljs`, `sync/asset_db_listener.cljs`, and `deps/db-sync` asset handlers
+|===
+
+== Relationship To The Main DB Model
+
+DB-sync is not a separate data model layered on top of the graph. It is a replication and coordination mechanism for the same graph model.
+
+That has two implications:
+
+* DB schema and property changes can affect sync semantics.
+* Import/export or graph bootstrap changes can affect initial upload/download behavior.
+
+When making changes to the database model, always ask whether sync needs:
+
+* new keyword definitions,
+* new persistence or index support,
+* protocol serialization changes,
+* revised client replay logic,
+* test coverage on both client and server sides.

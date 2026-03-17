@@ -1,0 +1,107 @@
+= Graph Lifecycle
+:toc: left
+:toclevels: 3
+:sectanchors:
+
+This page follows a graph through its main local lifecycle: discovery, restore, creation, parse/import, open, and subsequent worker ownership.
+
+== Why This Workflow Matters
+
+Many features that seem unrelated eventually touch the same lifecycle:
+
+* opening a repo,
+* restoring previous state,
+* creating a new DB graph,
+* importing from files,
+* validating or migrating local data,
+* handing graph ownership to the worker.
+
+If you understand this flow, many "where does the graph actually come from" questions disappear.
+
+== Phase 1: Frontend Startup Chooses A Repo
+
+The frontend startup entry point is `frontend.handler/start!`.
+
+After initial service setup, it starts the DB worker, reads the known repos, chooses the current repo, and then either:
+
+* creates a demo DB, or
+* restores and sets up the selected repo with `restore-and-setup!`.
+
+This is the main handoff from application lifecycle into graph lifecycle.
+
+== Phase 2: Restore And Repo Setup
+
+`restore-and-setup!` in `src/main/frontend/handler.cljs` delegates to DB restore and repo configuration logic.
+
+That stage is where the app moves from "the shell is running" to "this concrete graph is becoming active".
+
+Important consequences of this stage:
+
+* repo-specific config is loaded,
+* repo-scoped hooks are started,
+* commands and periodic tasks are registered after restore succeeds.
+
+== Phase 3: Worker Opens Or Creates Local Databases
+
+Once the worker is active, `frontend.worker.db-worker` becomes the owner of the local DB execution environment.
+
+Key responsibilities during graph open include:
+
+* initializing the SQLite wasm layer,
+* opening OPFS-backed databases,
+* wiring DataScript storage,
+* restoring or resetting the in-memory DB,
+* opening related DBs such as search and client-op stores,
+* running validation, migration, and GC where needed.
+
+This is the phase where a repo becomes a live graph database, not only a selected path.
+
+== Phase 4: Bootstrap For New DB Graphs
+
+For new DB graphs, bootstrap logic from `logseq.db.sqlite.create-graph` materializes the baseline DB entities needed by the product.
+
+That includes:
+
+* built-in properties,
+* classes,
+* views,
+* built-in page-like entities and related metadata.
+
+Bootstrap transaction ordering is deliberate. If you modify it casually, later property or class logic may fail in ways that look unrelated.
+
+== Phase 5: Parse And Import Content
+
+When file-backed content or imported content needs to become graph data, graph-parser is the main translation layer.
+
+The most useful import-side entry point is `extract-pages-and-blocks` in `logseq.graph-parser.exporter`.
+
+That path is responsible for:
+
+* choosing parser behavior based on file format,
+* enabling DB-graph export/import mode,
+* converting files into pages and blocks,
+* filtering unsupported formats,
+* handling special cases such as annotation pages.
+
+This is where external representation first becomes DB-oriented structured data.
+
+== Phase 6: Graph Becomes Queryable And Reactive
+
+Once DataScript state is live and frontend subscriptions are attached, the graph becomes queryable by UI code, handlers, and plugin APIs.
+
+At that point, the system is operating in the steady state most contributors think about day to day.
+
+But debugging often requires remembering the earlier phases, especially when a graph behaves differently after a fresh create, restore, or import.
+
+== Source Reading Checklist
+
+If you need to trace graph lifecycle behavior, read these in order:
+
+. `src/main/frontend/handler.cljs`
+. `src/main/frontend/handler/repo.cljs`
+. `src/main/frontend/db/restore.cljs`
+. `src/main/frontend/worker/db_worker.cljs`
+. `deps/db/src/logseq/db/sqlite/create_graph.cljs`
+. `deps/graph-parser/src/logseq/graph_parser/exporter.cljs`
+
+That path usually gets you from lifecycle entry to the point where graph data is usable.

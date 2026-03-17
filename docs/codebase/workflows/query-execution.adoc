@@ -1,0 +1,98 @@
+= Query Execution
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains how Datalog queries work in Logseq, when they run, and how to debug them.
+
+== Why Datalog?
+
+Logseq uses Datalog (implemented by DataScript) for graph queries instead of SQL or imperative code. Datalog is:
+
+* Declarative: you describe what you want, not how to fetch it
+* Expressive: complex graph relationships are easier to express than in SQL
+* Composable: queries can be combined and reused
+
+If you have used SQL, Datalog will feel familiar but more powerful for graph data.
+
+== Query Entry Points
+
+Queries usually enter through one of these:
+
+* Frontend subscriptions: `(frontend.db/q ...)` in UI code
+* Handler code: `(d/q pattern @db ...)` in feature handlers
+* Plugin API: plugins call graph queries through `logseq.api.db-based`
+* Direct DB queries: worker code queries the main conn
+
+The most common pattern is a frontend subscription triggering a Datalog query.
+
+== How Datalog Query Works
+
+A typical query shape is:
+
+[source,clojure]
+----
+(d/q '[:find ?e ?block
+       :where [?e :block/uuid ?block]]
+     @conn)
+----
+
+In english: "Find all entities `?e` that have a `:block/uuid`, and return both the entity id and UUID."
+
+The query engine:
+
+1. Searches the database for all datoms (facts) matching the pattern
+2. Unifies variables (makes sure the same variable means the same thing)
+3. Returns results
+
+== Debugging Queries
+
+If a query returns empty when you expect results:
+
+1. Check that the data exists: `(d/entity @conn entity-id)`
+2. Check the attribute name is correct: look in `deps/db/` for the schema
+3. Check that you are querying the right connection (main conn, not client-ops conn)
+4. Use `(d/datoms @conn :avet :block/uuid)` to enumerate what actually exists
+
+If a query is slow:
+
+1. Check that indexes are defined for your attributes
+2. Consider whether you can use a simpler query pattern
+3. Check that you are not querying in a hot loop (queries are fast but not infinite)
+
+== Common Query Patterns
+
+|===
+|Pattern |Use to
+
+|Get all entities with an attribute
+|`[:find ?e :where [?e :some/attr _]]`
+
+|Get all values for an attribute
+|`[:find ?v :where [_ :some/attr ?v]]`
+
+|Traverse a relationship
+|`[:find ?e :where [?e :block/parent ?parent]]`
+
+|Combine multiple conditions
+|Add more `:where` clauses
+|===
+
+== Query Rules
+
+Complex queries often use rules, which are like stored procedures:
+
+[source,clojure]
+----
+(d/q '[:find ?e
+       :where
+       (my-rule ?e)]
+     @conn)
+
+; Define my-rule elsewhere
+[[my-rule ?e]
+ [?e :block/parent ?parent]
+ [?parent :block/name "Contents"]]
+----
+
+Rules help avoid repeating query patterns and make complex queries more readable.

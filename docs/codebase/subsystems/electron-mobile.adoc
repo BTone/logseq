@@ -1,0 +1,80 @@
+= Electron and Mobile Integration
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains the platform-specific layers for desktop and mobile runtimes.
+
+== Why Platform-Specific Code Matters
+
+Logseq runs in three environments: web browser, Electron (desktop), and mobile (iOS/Android via Capacitor). Most of the product is shared code, but each platform has specific integration needs.
+
+== Platform Code Locations
+
+|===
+|Platform |Code locations |Specific concerns
+
+|Electron
+|`src/electron/`, platform-specific handlers
+|Filesystem access, native menus, crash reporting, installer
+
+|Mobile
+|`src/main/mobile/`, Capacitor plugins
+|Touch UI, native calls, app lifecycle
+
+|Web (browser only)
+|`public/`, `src/main/frontend/`
+|IndexedDB for persistence, limit to browser APIs
+|===
+
+== Key Responsibilities By Platform
+
+=== Electron
+
+Electron owns:
+
+* filesystem access and file watchers
+* native window management and drag-and-drop
+* auto-update infrastructure
+* menu bar and system integrations
+
+The main Electron entry point is `src/electron/main.ts` (or `.js`). From there, IPC (inter-process communication) bridges to the UI process.
+
+IPC messages are typically routed through `electron.ipc` and handled in both main and renderer processes.
+
+=== Mobile
+
+Mobile owns:
+
+* touch-optimized UI in `src/main/mobile/`
+* navigation and app lifecycle
+* native plugin bridges via Capacitor
+* platform-specific file storage
+
+The Capacitor framework handles communication between JavaScript and native code (Swift for iOS, Kotlin for Android).
+
+When working on mobile, check `capacitor.config.ts` for configured plugins and capabilities.
+
+=== Browser Only
+
+When running in a plain browser (no Electron or mobile wrapper), the app:
+
+* uses IndexedDB for local persistence
+* cannot access the local filesystem directly
+* relies on the browser's fetch API for HTTP
+
+== Feature Decision Tree
+
+Use this to decide where a feature belongs:
+
+* Does it require raw filesystem access (not through a File input)? → Electron-specific
+* Does it need to call native code (camera, photos, clipboard)? → Mobile
+* Does it work in all three environments? → Shared `src/main/frontend/`
+* Is it UI that feels more natural on mobile? → `src/main/mobile/`
+
+== Common Pitfalls
+
+* Assuming `window.fs` or filesystem APIs are available everywhere. Always check the runtime first.
+* Forgetting that mobile has different interaction patterns (no hover, limited multi-window).
+* Shipping Electron-only code path without fallback for web.
+* Not testing on all three platforms before shipping a core feature.

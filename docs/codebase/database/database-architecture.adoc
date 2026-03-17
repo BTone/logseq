@@ -1,0 +1,195 @@
+= Database Architecture
+:toc: left
+:toclevels: 3
+:sectanchors:
+
+This page explains the main database model used by Logseq and the code paths that create, restore, parse, persist, and expose graph data.
+
+== Core Idea
+
+Logseq uses a layered database architecture rather than a single storage abstraction.
+
+At a high level:
+
+* DataScript is the in-memory graph model used for querying and reactive application behavior.
+* SQLite is the durable local persistence layer managed in the worker.
+* Graph-parser converts file and text representations into DB-oriented structures and back.
+* `deps/db/` holds the shared schema, property, class, and entity logic that makes the model coherent.
+
+That means many operations are translation pipelines, not one-step reads or writes.
+
+== Main Source Areas
+
+|===
+|Area |Primary code |Responsibility
+
+|DB library
+|`deps/db/src/logseq/db.cljs`
+|Core DB helpers and shared DB-oriented behavior.
+
+|SQLite graph bootstrap
+|`deps/db/src/logseq/db/sqlite/create_graph.cljs`
+|Builds initial properties, classes, views, and bootstrap entities for a DB graph.
+
+|Frontend DB bridge
+|`src/main/frontend/db/`
+|Connects UI-facing code to the graph database.
+
+|Browser DB worker
+|`src/main/frontend/worker/db_worker.cljs`
+|Owns SQLite/DataScript lifecycle and worker-side DB operations.
+
+|Graph parsing
+|`deps/graph-parser/src/logseq/graph_parser/`
+|Extracts and exports pages, blocks, properties, and mldoc structures.
+
+|Plugin-facing DB API
+|`src/main/logseq/api/db_based.cljs`
+|Exposes graph operations to plugins.
+|===
+
+== The Two Main Local DB Layers
+
+=== DataScript
+
+DataScript is the working graph model. It is optimized for in-memory queries and fits the product's entity-oriented behavior well.
+
+Contributors generally feel DataScript through:
+
+* entity lookup,
+* datalog queries,
+* transaction reports,
+* schema-driven behavior, and
+* reactive subscriptions in the frontend.
+
+=== SQLite
+
+SQLite is the durable local store, managed from the worker. In `frontend.worker.db-worker`, SQLite databases are opened through OPFS-backed wasm support and wrapped with storage helpers so DataScript state can be persisted and restored.
+
+Important worker-level responsibilities include:
+
+* opening and closing DBs,
+* garbage collection and vacuum,
+* importing/exporting DB files,
+* search database maintenance, and
+* maintaining separate local operation stores for sync.
+
+== Graph Creation and Bootstrap
+
+When a DB graph is first created, it is not empty in the naive sense. It needs a baseline schema and a set of built-in entities.
+
+The bootstrap logic lives in `logseq.db.sqlite.create-graph`.
+
+The important ideas in that namespace are:
+
+* built-in properties are materialized as real entities,
+* some properties have closed values that also need bootstrap data,
+* bootstrap transaction order matters, and
+* classes and views are seeded after the prerequisite properties exist.
+
+This matters operationally because many later features assume the built-in property and class model is already present and structurally valid.
+
+== Properties and Classes
+
+The property system is one of the densest parts of the DB model.
+
+There are three related concerns:
+
+* property syntax and parse behavior,
+* property schema and DB representation,
+* property values and references inside graph data.
+
+The DB-side built-ins are defined through `logseq.db.frontend.property/built-in-properties`, and bootstrap code creates the initial property entities from that definition.
+
+When adding or changing a property-related feature, check both:
+
+* parser-level handling in `deps/graph-parser/`, and
+* DB bootstrap/schema handling in `deps/db/`.
+
+If a change persists new fields or new property semantics, the worker, sync logic, and plugin API may all be affected.
+
+== Graph Parsing Layer
+
+Graph-parser is the translation layer between external text formats and the internal graph model.
+
+Key namespaces include:
+
+* `logseq.graph-parser.extract`
+* `logseq.graph-parser.block`
+* `logseq.graph-parser.property`
+* `logseq.graph-parser.text`
+* `logseq.graph-parser.mldoc`
+* `logseq.graph-parser.exporter`
+
+One especially useful entry point is `extract-pages-and-blocks` in `logseq.graph-parser.exporter`, which is documented in code as the main function that calls graph-parser to convert markdown into data.
+
+That function is a good place to start when you need to understand:
+
+* supported import formats,
+* parser options used for DB graphs,
+* ignored file behavior,
+* annotation-page special cases, and
+* the handoff from file content to structured page/block data.
+
+== Worker Ownership of DB Execution
+
+`frontend.worker.db-worker` is the best high-value implementation entry point for understanding local DB behavior.
+
+It owns:
+
+* SQLite module initialization,
+* DataScript storage integration,
+* per-repo connection registries,
+* database open/reset/close flows,
+* graph GC and validation,
+* bridges to search, export, publish, and sync subsystems.
+
+If you are tracing a bug that looks like "the graph exists but behaves strangely", this namespace is often closer to the root cause than the rendering layer.
+
+== Plugin-Facing DB API
+
+`src/main/logseq/api/db_based.cljs` is the main DB-oriented plugin surface.
+
+That namespace exposes operations such as:
+
+* inserting blocks,
+* updating blocks,
+* getting and upserting properties,
+* listing tags and properties,
+* retrieving tag objects.
+
+Why this matters:
+
+* plugin semantics become part of the product contract,
+* DB changes may need corresponding API changes or validation,
+* property changes often have user-facing automation impact beyond the core UI.
+
+== What To Read For Common Tasks
+
+If you are working on one of these tasks, start here:
+
+|===
+|Task |Start with
+
+|Graph bootstrap or built-in property change
+|`deps/db/src/logseq/db/sqlite/create_graph.cljs`
+
+|Property parse or export bug
+|`deps/graph-parser/src/logseq/graph_parser/property.cljs` and `text.cljs`
+
+|DB open/restore/reset issue
+|`src/main/frontend/worker/db_worker.cljs`
+
+|Plugin block/property behavior
+|`src/main/logseq/api/db_based.cljs`
+
+|Schema or entity utility change
+|`deps/db/src/logseq/db/frontend/` and `deps/db/src/logseq/db/common/`
+|===
+
+== Common Pitfalls
+
+* Treating parser output as if it were already the final DB shape.
+* Changing a built-in property definition without checking bootstrap and migration implications.
+* Fixing only frontend behavior when the real invariant is enforced in the worker or shared DB libraries.
+* Forgetting that plugin-facing APIs may expose the behavior you just changed.

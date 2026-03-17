@@ -1,0 +1,117 @@
+= Edit to Transaction to Sync
+:toc: left
+:toclevels: 3
+:sectanchors:
+
+This page describes the common path from a user edit to local DB change and, when enabled, realtime sync propagation.
+
+The details vary by feature, but the shape is consistent enough that learning this workflow pays off across the codebase.
+
+== Step 1: A Frontend Handler Accepts Intent
+
+A user action usually enters through a frontend handler or editor-related component flow in `src/main/frontend/handler/` or `src/main/frontend/components/`.
+
+Examples include block editing, insertion, formatting, property updates, and command-triggered operations.
+
+At this stage, the code is still speaking in user-facing terms: current block, content, selection, page, repo, or property name.
+
+== Step 2: DB-Oriented Logic Shapes The Change
+
+Before an edit reaches durable storage, it is typically converted into a DB-shaped operation.
+
+Relevant layers may include:
+
+* editor handlers in the frontend,
+* outliner logic in `deps/outliner/`,
+* DB/property utilities in `deps/db/`,
+* parser or format helpers when textual structure matters.
+
+The more a feature changes graph semantics instead of presentation, the closer its real logic is likely to be to these DB-oriented layers.
+
+== Step 3: Worker And Data Layer Apply The Change
+
+The worker owns the main persistence and transaction-heavy execution environment.
+
+`frontend.worker.db-worker` and related worker namespaces coordinate:
+
+* DB connections,
+* transaction application,
+* persistence,
+* validation,
+* search and side-effect updates,
+* sync bookkeeping when relevant.
+
+This is the point where the edit stops being a UI event and becomes graph state.
+
+== Step 4: Local Derived Systems React
+
+After the transaction lands, the system updates or invalidates related derived state.
+
+Depending on the change, that can include:
+
+* DataScript query results,
+* search index updates,
+* cached query invalidation,
+* property or class side effects,
+* worker-to-frontend broadcasts.
+
+This is why many "simple" edits touch more code than the visible UI would suggest.
+
+== Step 5: Realtime Sync Converts The Local Change Into Sync State
+
+If the graph is using db-sync, worker sync code classifies and tracks the change.
+
+`frontend.worker.sync` and `frontend.worker.pipeline` are central here:
+
+* they distinguish local edits from remote replay and special sync flows,
+* avoid feeding replayed remote transactions back into the outgoing pipeline,
+* update local checksums and pending operation state,
+* eventually upload or replay the operation against remote state.
+
+This separation is critical. A sync system that cannot distinguish local intent from remote replay will duplicate or corrupt work.
+
+== Step 6: Remote State Catches Up
+
+Once local operations are sent, the client tracks:
+
+* pending local work,
+* latest remote transaction number,
+* checksum agreement,
+* asset synchronization,
+* presence and connection state.
+
+Only when sequence and checksum align is the graph truly converged.
+
+== Code Paths Worth Memorizing
+
+If you are tracing an edit-related bug, the following file groups usually matter most:
+
+|===
+|Question |Start with
+
+|Where does the user intent enter?
+|`src/main/frontend/handler/` and editor-related components
+
+|Where does it become graph data?
+|`deps/outliner/`, `deps/db/`, `src/main/frontend/worker/db_worker.cljs`
+
+|Why did sync upload or ignore this change?
+|`src/main/frontend/worker/pipeline.cljs` and `src/main/frontend/worker/sync.cljs`
+
+|Why did a property-related edit behave strangely?
+|`deps/db/` property namespaces plus `deps/graph-parser/` property/text helpers
+|===
+
+== Practical Debugging Rule
+
+When an edit bug appears, do not stop at the first layer that looks related.
+
+Trace all the way through:
+
+. frontend intent,
+. DB-shaped operation,
+. worker application,
+. local side effects,
+. sync classification.
+
+That full pass is often the difference between fixing a symptom and fixing the system behavior.

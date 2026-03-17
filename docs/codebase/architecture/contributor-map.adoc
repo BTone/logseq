@@ -1,0 +1,141 @@
+= Contributor Map
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page is a practical source-tree map for contributors who already know roughly what they want to change and need to find the right code quickly.
+
+== Main Application Areas
+
+|===
+|Directory |What lives here |When to start here
+
+|`src/main/frontend/components/`
+|UI components and presentation-oriented rendering
+|You are changing visible UI behavior or component structure.
+
+|`src/main/frontend/handler/`
+|Feature handlers and orchestration logic
+|You are changing user actions, lifecycle hooks, or command flows.
+
+|`src/main/frontend/db/`
+|Frontend DB bridge and query-facing helpers
+|You need the frontend side of graph access.
+
+|`src/main/frontend/worker/`
+|Worker-owned DB, search, publish, export, and sync logic
+|The change is data-heavy, persistent, or sync-related.
+
+|`src/main/logseq/api/`
+|Plugin-facing APIs
+|The behavior is consumed by plugins or external automation.
+
+|`src/main/mobile/`
+|Mobile-specific app code
+|The issue is specific to the mobile runtime or UI.
+
+|`src/electron/`
+|Electron-specific integration
+|The behavior depends on desktop shell or Electron-only integration.
+|===
+
+== Shared Libraries In `deps/`
+
+|===
+|Directory |Role |Typical reasons to read it
+
+|`deps/common/`
+|Shared utilities and definitions
+|Cross-cutting helpers or keyword/config definitions are involved.
+
+|`deps/db/`
+|Database model, schema, SQLite, property/class logic
+|You are changing graph semantics, schema, or persisted behavior.
+
+|`deps/graph-parser/`
+|Import/export and text-to-graph transformations
+|A bug depends on markdown/org parsing or export shape.
+
+|`deps/outliner/`
+|Outliner behavior built on the graph model
+|Tree and block semantics are central to the change.
+
+|`deps/db-sync/`
+|Realtime sync server and related shared logic
+|The issue crosses local and remote graph synchronization.
+
+|`deps/publish/` and `deps/publishing/`
+|Publishing and export-related functionality
+|The change affects published output or export pipelines.
+|===
+
+== Tests And Verification Areas
+
+|===
+|Directory |What it covers
+
+|`src/test/`
+|Main ClojureScript unit tests for frontend, DB, worker, and handler behavior.
+
+|`clj-e2e/`
+|End-to-end tests for user-visible workflows.
+
+|`deps/*/test/`
+|Package-local tests for dependency libraries such as db-sync and graph-parser.
+
+|`scripts/test/`
+|Script-level and task-related tests.
+|===
+
+For test-running guidance, use link:../dev-practices.md[docs/dev-practices.md] and the package-level READMEs.
+
+== Configuration And Build Surfaces
+
+These files are often relevant when a change has build or packaging consequences:
+
+* `bb.edn`
+* `deps.edn`
+* `package.json`
+* `shadow-cljs.edn`
+* `gulpfile.js`
+* `webpack.config.js`
+* `capacitor.config.ts`
+
+Do not treat these as passive metadata. In this repository, build and runtime wiring are spread across both JS and Clojure tooling.
+
+== Fast Navigation By Problem Shape
+
+|===
+|If the bug looks like... |Start here
+
+|A block or page renders incorrectly
+|`src/main/frontend/components/` and `src/main/frontend/handler/`
+
+|A graph opens, restores, or persists incorrectly
+|`src/main/frontend/worker/db_worker.cljs`, `src/main/frontend/db/`, `deps/db/`
+
+|Markdown/org import or export is wrong
+|`deps/graph-parser/`
+
+|A property or class behaves inconsistently
+|`deps/db/` plus `deps/graph-parser/`
+
+|A plugin sees unexpected graph behavior
+|`src/main/logseq/api/` plus whichever internal layer owns the behavior
+
+|Sync works locally but diverges remotely
+|`src/main/frontend/worker/sync.cljs` and `deps/db-sync/`
+
+|The issue is mobile- or desktop-only
+|`src/main/mobile/` or `src/electron/` plus any shared lower layer it wraps
+|===
+
+== Rule Of Thumb
+
+If you are unsure where to begin, start from the highest layer that clearly owns the user-visible behavior, then move downward until you find the layer that owns the invariant.
+
+In practice, that usually means:
+
+. start in frontend handlers or components,
+. move into worker code if persistence or heavy data work is involved,
+. move into `deps/` when the issue is really domain logic rather than application wiring.

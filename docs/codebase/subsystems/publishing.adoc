@@ -1,0 +1,61 @@
+= Publishing and Export
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains how Logseq transforms graphs for web publishing and export.
+
+== Main Responsibility
+
+The publishing system allows users to take private graphs and transform them into:
+
+* Static HTML sites publishable to the web
+* Markdown/Org exports for use in other tools
+* PDF and other format exports
+
+This is distinct from the core graph model because publishing requires different transformations and has its own deployment infrastructure.
+
+== Key Architecture Areas
+
+|===
+|Area |Primary code |Responsibility
+
+|Publishing web app
+|`src/main/frontend/worker/publish.cljs`, frontend-publishing logic
+|Renders graphs as static web pages.
+
+|Export transformations
+|`deps/publish/` and `deps/graph-parser/`
+|Converts graph to various output formats.
+
+|Backend and storage
+|`deps/db-sync/` assets and snapshot handlers
+|Stores published assets and metadata.
+|===
+
+== Publishing Flow
+
+When a user publishes a graph:
+
+1. The graph is snapshotted at a point in time.
+2. The publishing frontend queries the graph and renders it as HTML.
+3. Asset references are rewritten to point to published URLs.
+4. The HTML and assets are sent to storage (cloud or local).
+5. A URL or embed is returned.
+
+The key insight is that publishing is a *transformation pipeline*, not a separate database. The same graph semantics must be respected.
+
+== Export Flow
+
+When exporting to Markdown/Org:
+
+1. The graph is queried.
+2. Graph-parser's exporter transforms blocks back into file format.
+3. Properties and block structures are preserved or downgraded as format allows.
+4. Files are written to disk.
+
+== Common Pitfalls
+
+* Not preserving graph invariants in the export transformation.
+* Assuming the published view matches the local view when they use different styling or query results.
+* Forgetting that export must handle cases the UI doesn't (e.g., very large graphs, circular references).

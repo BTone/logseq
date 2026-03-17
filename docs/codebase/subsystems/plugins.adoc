@@ -1,0 +1,62 @@
+= Plugin System
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains how Logseq's plugin system works and where to look for the runtime and APIs.
+
+== Main Responsibility
+
+The plugin system enables third-party code to extend Logseq with new features. Plugins can add commands, UI elements, keyboard shortcuts, event handlers, and graph-modifying operations.
+
+== Key Plugin Runtime Areas
+
+|===
+|Area |Primary code |Responsibility
+
+|Plugin loader and lifecycle
+|`src/main/frontend/handler/plugin.cljs`
+|Loads, starts, stops, and unloads plugins.
+
+|Plugin SDK and public API
+|`src/main/logseq/sdk/`
+|Public-facing type definitions and helper functions for plugins.
+
+|DB-oriented plugin API
+|`src/main/logseq/api/db_based.cljs`
+|Plugin access to graph operations.
+
+|Block-level plugin API
+|`src/main/logseq/api/block.cljs`
+|Plugin access to blocks, properties, and page operations.
+|===
+
+== Entry Points For Plugin Features
+
+When a plugin wants to hook into Logseq behavior, it does so through the SDK in `src/main/logseq/sdk/`.
+
+Common hooks include:
+
+* `:plugin/editor-slot-renderers` — render custom UI in the editor
+* `:plugin/commands` — add custom commands to the palette
+* `:plugin/keyboard-shortcuts` — add keyboard shortcuts
+* `:plugin/themes` — offer dark/light theme customizations
+* `:plugin/ui-items-command` — add top-bar menus and buttons
+
+When adding a new plugin hook capability, the work typically involves:
+
+. Define the hook type and expected data shape in the SDK.
+. Add a handler in the plugin loader that understands that hook.
+. Wire the handler into the appropriate frontend component or handler.
+
+== Plugin API Design Principle
+
+The DB-based plugin API exposed in `logseq.api.db-based` must remain stable. Any breaking change to block insertion, property handling, or graph manipulation affects plugins in production.
+
+When you change DB semantics, always ask: "Does this affect the plugin API surface?" If yes, there should be corresponding changes to the API contract and likely a version bump.
+
+== Common Pitfalls
+
+* Assuming plugins see the same view of the graph as the UI does. If the UI does local-only state that the plugin API doesn't expose, they diverge.
+* Forgetting that plugins can run outdated code long after you ship an API change. Deprecation cycles matter.
+* Forgetting that plugin-visible errors are product errors not internal errors. The SDK and API surface should fail gracefully.

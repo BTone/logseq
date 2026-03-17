@@ -1,0 +1,87 @@
+= Export and Publishing
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page traces the export and publishing workflows from graph to external representation.
+
+== Main Distinction
+
+* *Export* — save full graph data as markdown/org files for use in other tools
+* *Publishing* — transform a graph into a read-only web experience
+
+Both are transformations from the internal graph model, but with different goals and constraints.
+
+== Export Flow
+
+Export takes a graph and writes it as files to disk.
+
+Key entry points:
+
+* Handler trigger in `src/main/frontend/handler/`
+* Export orchestration in `src/main/frontend/worker/export.cljs`
+* Transformation logic in `deps/graph-parser/exporter.cljs`
+
+The flow is:
+
+1. Query the graph for pages and blocks
+2. Transform each block back into file syntax (markdown or org)
+3. Format and write files to disk
+4. Include any asset attachments
+
+== Export Transformation Details
+
+The transformer must handle:
+
+* Block content and properties
+* Links and references
+* Nested structure (indentation and hierarchy)
+* Attachments and assets
+* Special cases like properties, metadata blocks
+
+Most of that logic lives in `logseq.graph-parser.exporter`.
+
+== Publishing Flow
+
+Publishing is more complex because it creates a shareable web artifact.
+
+Key stages:
+
+1. User clicks "Publish"
+2. Graph is snapshotted at that moment
+3. Publishing frontend spawns and renders the graph as HTML
+4. Assets are collected and uploaded
+5. A public URL is generated and stored
+
+Key entry points:
+
+* Handler in `src/main/frontend/worker/` related to publishing
+* Publishing app rendering in `src/main/frontend/worker/publish.cljs`
+
+== Asset Handling In Both Paths
+
+Both export and publish must handle assets (images, PDFs, plugins). The approach differs:
+
+* Export: copy local assets to disk alongside files
+* Publish: upload assets to cloud storage and rewrite URLs to point to published versions
+
+Asset references are usually rewritten from local paths to external URLs in the published version.
+
+== Roundtrip Testing For Export
+
+Always verify export roundtrips:
+
+1. Create data with all feature shapes you support
+2. Export to markdown/org
+3. Delete the original graph
+4. Re-import the exported files
+5. Verify the result matches the original
+
+If the roundtrip loses data, the exporter is incomplete or has a bug.
+
+== Common Pitfalls
+
+* Not handling deeply nested blocks or very long content
+* Forgetting edge cases like blocks with no content, or properties with special characters
+* Assuming property roundtrips work without testing
+* Not updating export when adding new block or property types

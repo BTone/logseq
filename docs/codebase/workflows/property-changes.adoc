@@ -1,0 +1,74 @@
+= Property and Class Changes
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains how to add, modify, or remove properties and classes safely.
+
+== Why Properties Are Delicate
+
+Properties are not just UI labels. A property in Logseq is:
+
+* a schema definition in the database
+* a markdown/org syntax convention
+* a set of stored values across the graph
+* part of the plugin API contract
+
+Changes to properties affect all of those layers at once. The moment you change a property:
+
+* existing graphs may need migration
+* serialized syntax may need translation
+* plugin code expecting the old behavior may break
+
+That is why even small property changes should be deliberate and well-tested.
+
+== Property Definition Location
+
+Built-in properties are defined in `logseq.db.frontend.property/built-in-properties`.
+
+That map contains:
+
+* `:schema` — the property's type and constraints
+* `:closed-values` — if the property has a fixed set of choices
+* `:attribute` — the DB ident for the property
+
+The bootstrap code in `logseq.db.sqlite.create-graph` takes those definitions and materializes them as real entities in the database.
+
+== Adding A New Property
+
+1. Add an entry to `built-in-properties` with a schema and title.
+2. Add a parser handler in `deps/graph-parser/` if the property has text syntax.
+3. Update bootstrap code if the property has special setup needs.
+4. Update the plugin API if the property is user-facing.
+5. Write tests for parse -> DB -> export roundtrips.
+6. Run `bb dev:lint-and-test` to check.
+
+== Modifying An Existing Property
+
+1. Understand what code depends on it (use grep and `bb lint`).
+2. Consider whether the change is backward-compatible.
+3. If not backward-compatible, plan a migration for existing graphs.
+4. Update all the locations that understand that property (bootstrap, parser, export, API).
+5. Write tests specifically for upgrade scenarios.
+
+== Removing A Property
+
+Do not delete a property from `built-in-properties` immediately. Instead:
+
+1. Mark it as deprecated in documentation.
+2. Leave any existing data intact so old graphs still load.
+3. After one or two releases, offer a migration tool if needed.
+4. Only then remove the definition.
+
+This gives existing graphs and plugins time to adapt.
+
+== The Property Roundtrip Test
+
+Always test the full roundtrip:
+
+1. Create a page with the property
+2. Export it to markdown/org
+3. Re-import that exported file
+4. Check that the property is preserved
+
+If any step loses the property, the change is incomplete.

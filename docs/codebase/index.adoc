@@ -1,0 +1,115 @@
+= Logseq Codebase Guide
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This directory contains an AsciiDoc guide to the Logseq codebase.
+
+The intent is twofold:
+
+* Give newcomers a reliable starting point for understanding what the main subsystems do.
+* Give experienced contributors a fast map from behavior to source directories, namespaces, and workflows.
+
+This guide is additive. It does not replace the existing Markdown documentation that already serves as the canonical source for setup, contributor workflow, or db-sync protocol details.
+
+== Read This First
+
+If you are new to the repository, start in this order:
+
+. xref:architecture/system-overview.adoc[System Overview]
+. xref:architecture/runtime-boundaries.adoc[Runtime Boundaries]
+. xref:database/database-architecture.adoc[Database Architecture]
+. xref:workflows/graph-lifecycle.adoc[Graph Lifecycle]
+
+If you already know the product and need implementation detail quickly, jump to:
+
+* xref:database/db-sync.adoc[DB-Sync and Realtime Flow]
+* xref:workflows/edit-to-sync.adoc[Edit to Transaction to Sync]
+
+== Guide Structure
+
+=== Architecture
+
+* xref:architecture/system-overview.adoc[System Overview]: repository shape, startup path, and major subsystem responsibilities.
+* xref:architecture/runtime-boundaries.adoc[Runtime Boundaries]: what runs in the main frontend, worker, Electron, mobile, and shared dependency packages.
+* xref:architecture/contributor-map.adoc[Contributor Map]: where to look for feature work, tests, platform integration, and shared libraries.
+* xref:architecture/build-system.adoc[Build System]: how the multi-tool build pipeline works, aimed at people unfamiliar with the Node ecosystem.
+
+=== Database
+
+* xref:database/database-architecture.adoc[Database Architecture]: DataScript, SQLite persistence, graph-parser, properties, and the DB-based API surface.
+* xref:database/db-sync.adoc[DB-Sync and Realtime Flow]: client/server sync responsibilities and the main code paths involved in upload, download, and replay.
+
+=== Subsystems
+
+* xref:subsystems/plugins.adoc[Plugin System]: plugin-facing APIs, extension points, and the runtime for loading external code.
+* xref:subsystems/publishing.adoc[Publishing and Export]: web publishing, static export, and document transformation pipelines.
+* xref:subsystems/electron-mobile.adoc[Electron and Mobile]: platform-specific integration points and runtime differences.
+
+=== Workflows
+
+* xref:workflows/graph-lifecycle.adoc[Graph Lifecycle]: how a graph is created, restored, parsed, opened, and migrated.
+* xref:workflows/edit-to-sync.adoc[Edit to Transaction to Sync]: how an edit becomes local DB state and, when enabled, a synced operation.
+* xref:workflows/query-execution.adoc[Query Execution]: how Datalog queries work, when they run, and how to debug them.
+* xref:workflows/property-changes.adoc[Property and Class Changes]: how to add, modify, or remove properties and classes in the schema.
+* xref:workflows/export-publish.adoc[Export and Publishing]: how graphs are transformed for export and web publishing.
+
+== Source Map
+
+These are the highest-value source roots to keep in mind while reading the docs:
+
+|===
+|Area |Primary location |Why it matters
+
+|Application startup
+|`src/main/frontend/handler.cljs`
+|Top-level startup orchestration for the frontend application.
+
+|Frontend feature code
+|`src/main/frontend/`
+|Components, handlers, UI state, DB integration, worker bridge.
+
+|Browser DB worker
+|`src/main/frontend/worker/`
+|SQLite/DataScript orchestration, search, export, sync, publishing.
+
+|DB and schema libraries
+|`deps/db/`
+|Shared DB, schema, sqlite, property, class, and entity utilities.
+
+|Graph parsing
+|`deps/graph-parser/`
+|Markdown/org and mldoc parsing, import/export transforms.
+
+|Realtime sync server
+|`deps/db-sync/`
+|Cloudflare Worker and Node adapter implementations for db-sync.
+
+|Plugin-facing API
+|`src/main/logseq/api/`
+|DB-based API surface used by plugins and external automation.
+|===
+
+== Existing Canonical References
+
+Use this guide together with the existing docs instead of treating it as a rewrite of them.
+
+* link:../../CODEBASE_OVERVIEW.md[CODEBASE_OVERVIEW.md] covers the older high-level architecture summary.
+* link:../dev-practices.md[docs/dev-practices.md] remains the reference for linting, testing, and development practices.
+* link:../agent-guide/db-sync/db-sync-guide.md[docs/agent-guide/db-sync/db-sync-guide.md] remains the implementation guide for db-sync changes.
+* link:../../deps/db-sync/README.md[deps/db-sync/README.md] remains the operational overview for the sync server package.
+
+== How To Use This Guide
+
+When you change code, update the page that describes the subsystem boundary or workflow you touched. Prefer documenting:
+
+* Ownership boundaries between namespaces and packages.
+* The order in which a workflow crosses modules.
+* Invariants or assumptions that are easy to break.
+
+Avoid duplicating:
+
+* Installation steps.
+* Contributor process.
+* Exhaustive command references.
+* Protocol schemas already maintained elsewhere.

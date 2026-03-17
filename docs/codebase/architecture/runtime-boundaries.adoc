@@ -1,0 +1,122 @@
+= Runtime Boundaries
+:toc: left
+:toclevels: 2
+:sectanchors:
+
+This page explains where code runs and why the runtime boundary matters to design and debugging.
+
+== Why Boundaries Matter
+
+Many bugs in Logseq are boundary bugs rather than pure algorithm bugs. A change may be correct in isolation but wrong because it crossed an unwanted dependency boundary, ran in the wrong runtime, or assumed data was available in a place where it is not.
+
+The most important boundary in the codebase is the separation between the frontend and the worker.
+
+The repository enforces that separation with tooling. `bb lint:worker-and-frontend-separate` exists specifically to prevent the worker from depending on frontend-only namespaces and vice versa.
+
+== Frontend Runtime
+
+Primary location: `src/main/frontend/`
+
+The frontend runtime owns:
+
+* Rendering and composition of components.
+* Event handler registration.
+* User session and UI state.
+* Lifecycle orchestration for repositories and feature startup.
+* Calls into the worker for DB-heavy work.
+
+Typical namespaces:
+
+* `frontend.handler`
+* `frontend.handler.*`
+* `frontend.components.*`
+* `frontend.state`
+
+Choose the frontend when the primary concern is user interaction, presentation, or orchestration.
+
+== Worker Runtime
+
+Primary location: `src/main/frontend/worker/`
+
+The worker runtime owns:
+
+* SQLite connections and OPFS pools.
+* DataScript connections.
+* Search indexing.
+* Export and publish helpers.
+* DB validation and migration.
+* Realtime sync coordination and local sync operation management.
+
+The best single entry point is `frontend.worker.db-worker` in `src/main/frontend/worker/db_worker.cljs`.
+
+The namespace itself makes the boundary explicit:
+
+* it imports the sqlite wasm module,
+* owns connection registries such as `*sqlite-conns` and `*datascript-conns`, and
+* checks worker scope so React never leaks into the worker.
+
+That last check is significant because the worker is meant to be a data execution environment, not a second UI runtime.
+
+== Shared Dependency Packages
+
+Primary location: `deps/`
+
+These packages hold logic that is broader than a single frontend namespace and should remain shareable, testable, or runtime-independent.
+
+The most relevant packages for day-to-day work are:
+
+|===
+|Package |Purpose
+
+|`deps/common/`
+|Shared utilities and common definitions.
+
+|`deps/db/`
+|Database model, schema, SQLite helpers, property/class machinery.
+
+|`deps/graph-parser/`
+|Graph parsing, mldoc support, import/export transformations.
+
+|`deps/outliner/`
+|Outliner-centric logic built on the DB model.
+
+|`deps/db-sync/`
+|Realtime sync server and shared sync protocol logic.
+|===
+
+If a piece of logic is conceptually domain logic instead of UI glue, there is a good chance it belongs in `deps/` rather than `src/main/frontend/components/`.
+
+== Electron and Mobile
+
+Electron-specific code lives under `src/electron/` and platform packaging lives under `resources/`, `android/`, and `ios/`.
+
+Mobile app code lives under `src/main/mobile/`.
+
+These runtimes matter when behavior depends on:
+
+* filesystem access,
+* platform shell integration,
+* native UI affordances, or
+* startup differences outside the browser-only path.
+
+For many core graph and DB concerns, these platform layers are consumers of shared logic rather than owners of the data model.
+
+== Plugin Surface
+
+Primary location: `src/main/logseq/api/`
+
+The DB-based plugin-facing API is implemented in namespaces such as `logseq.api.db-based`.
+
+This layer matters because it exposes internal graph and property behavior in a form that plugins can call. When you change DB semantics, property handling, or block manipulation flows, this API surface may need to change as well, or at least be verified.
+
+== Boundary Checklist For Changes
+
+Before adding code, ask:
+
+* Does this need to run in the UI thread, or is it DB-heavy enough for the worker?
+* Am I accidentally pulling frontend-only dependencies into the worker?
+* Should this live in a shared dependency package instead of a feature namespace?
+* Does this change affect plugin-facing semantics in `src/main/logseq/api/`?
+* Does a platform-specific layer really own this behavior, or is it only wiring shared behavior?
+
+Answering those questions early avoids a large class of review comments and regressions.
